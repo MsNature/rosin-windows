@@ -1,33 +1,52 @@
-use std::{any::Any, time::Duration};
+use std::{any::Any, sync::Arc, num::NonZeroIsize, time::Duration};
 
-use raw_window_handle::{DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, WindowHandle as RWHWindowHandle};
+use raw_window_handle::{DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawWindowHandle, WindowHandle as RWHWindowHandle, Win32WindowHandle};
 
 use crate::{
+    platform::view::{ThreadLockedView, RosinView},
     kurbo::{Point, Size},
     prelude::*,
 };
 
-pub(crate) struct WindowHandle {}
+pub(crate) struct WindowHandle {
+    /// TODO make thread safe - force to only be accesable on the main thread
+    /// Most likely to some extra struct
+    ///  - Do the check internally or use the same MainKey kinda initialization as the macos version?
+    view: Arc<ThreadLockedView>
+}
 
 impl Clone for WindowHandle {
     fn clone(&self) -> Self {
-        Self {}
+        Self { view: self.view.clone() }
     }
 }
 
 impl HasWindowHandle for WindowHandle {
     fn window_handle(&self) -> Result<RWHWindowHandle<'_>, HandleError> {
-        Err(HandleError::Unavailable)
+        self.view.try_on_thread(
+            |view| {
+                let raw_ptr = view.hwnd().0;
+                let handle = Win32WindowHandle::new(NonZeroIsize::new(raw_ptr as isize).ok_or(HandleError::Unavailable)?);
+
+                unsafe { Ok(RWHWindowHandle::borrow_raw(RawWindowHandle::Win32(handle))) }
+            }
+        ).expect("RawWindowHandle must be requested from the main thread")
     }
 }
 
 impl HasDisplayHandle for WindowHandle {
     fn display_handle(&self) -> Result<DisplayHandle<'_>, HandleError> {
-        Err(HandleError::Unavailable)
+        Ok(DisplayHandle::windows())
     }
 }
 
 impl WindowHandle {
+    pub(crate) fn new(view: RosinView) -> WindowHandle {
+        Self {
+            view: Arc::new(ThreadLockedView::new(view))
+        }
+    }
+
     pub fn set_input_handler(&self, _id: Option<NodeId>, _handler: Option<Box<dyn InputHandler + Send + Sync>>) {}
 
     pub fn get_logical_size(&self) -> Size {
