@@ -1,8 +1,8 @@
 
 use windows::Win32::System::Threading::GetCurrentThreadId;
-use windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
-use windows::Win32::Foundation::HWND;
-use windows::core::Error;
+use windows::Win32::UI::WindowsAndMessaging::{DefWindowProcW, GetWindowThreadProcessId};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows::core::{Error, w};
 
 /// A struct for safely locking the use of a View on a single thread
 pub(crate) struct ThreadLockedView {
@@ -50,6 +50,16 @@ pub(crate) struct RosinView {
 
 impl RosinView {
     pub fn new() -> Result<RosinView, Error> {
+        let wc = windows::Win32::UI::WindowsAndMessaging::WNDCLASSW {
+            lpszClassName: w!("RosinGUI Windows Class"),
+            lpfnWndProc: Some(proc),
+            ..Default::default()
+        };
+
+        let class_atom = unsafe {
+            windows::Win32::UI::WindowsAndMessaging::RegisterClassW( &raw const wc )
+        };
+
         // I tried looking for another safe
         // or at least safer api for creating a window,
         // but for now this should hopefully do.
@@ -85,4 +95,8 @@ impl Drop for RosinView {
     fn drop(&mut self) {
         
     }
+}
+
+unsafe extern "system" fn proc(hwnd: HWND, msg: u32, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
+    DefWindowProcW(hwnd, msg, w_param, l_param)
 }
