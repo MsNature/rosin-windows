@@ -119,7 +119,7 @@ impl RosinView {
         };
 
         unsafe {
-            ShowWindowAsync(view.hwnd, SW_NORMAL);
+            ShowWindowAsync(view.hwnd, SW_NORMAL).ok()?;
         }
 
         Ok(view)
