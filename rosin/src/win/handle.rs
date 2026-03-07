@@ -95,7 +95,19 @@ impl WindowHandle {
 
     pub fn set_title(&self, _title: impl Into<String>) {}
 
-    pub fn minimize(&self) {}
+    pub fn minimize(&self) {
+        use windows::Win32::UI::WindowsAndMessaging::SW_MINIMIZE;
+
+        self.view.try_on_thread(
+            |view| {
+                unsafe {
+                    windows::Win32::UI::WindowsAndMessaging::ShowWindowAsync(view.hwnd(), SW_MINIMIZE)
+                }
+            }
+        ).expect("Temporary crash fail when `minimize` is ran")
+         .ok()
+         .expect("Temporary crash fail when `minimize` is ran");
+    }
 
     pub fn maximize(&self) {}
 

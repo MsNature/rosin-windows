@@ -1,8 +1,10 @@
 
 use windows::Win32::System::Threading::GetCurrentThreadId;
-use windows::Win32::UI::WindowsAndMessaging::{DefWindowProcW, GetWindowThreadProcessId};
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
-use windows::core::{Error, w};
+use windows::Win32::UI::WindowsAndMessaging::{GetDesktopWindow, GetWindowRect, GetWindowThreadProcessId, ShowWindowAsync, SW_NORMAL};
+use windows::Win32::Foundation::{HINSTANCE, HWND};
+use windows::core::Error;
+
+use crate::desc::WindowDesc;
 
 /// A struct for safely locking the use of a View on a single thread
 pub(crate) struct ThreadLockedView {
@@ -48,16 +50,40 @@ pub(crate) struct RosinView {
     hwnd: HWND,
 }
 
-impl RosinView {
-    pub fn new() -> Result<RosinView, Error> {
-        let wc = windows::Win32::UI::WindowsAndMessaging::WNDCLASSW {
-            lpszClassName: w!("RosinGUI Windows Class"),
-            lpfnWndProc: Some(proc),
-            ..Default::default()
-        };
+// here to easely change the impl later
+fn f64_to_i32(f: f64) -> i32 {
+    f as i32
+}
 
-        let class_atom = unsafe {
-            windows::Win32::UI::WindowsAndMessaging::RegisterClassW( &raw const wc )
+// TODO: implement all the unused (menu) stuff
+impl RosinView {
+    pub fn create_window<S: 'static>(desc: &WindowDesc<S>, instance: Option<HINSTANCE>) -> Result<RosinView, Error> {
+        println!("Initializing rosin view");
+
+        let width = f64_to_i32(desc.size.width);
+        let height = f64_to_i32(desc.size.height);
+
+        let (x, y) = 'pos: {
+            if let Some(pos) =  desc.position {
+                break 'pos (f64_to_i32(pos.x), f64_to_i32(pos.y));
+            }
+
+            let desktop_size = {
+                let desktop = unsafe { GetDesktopWindow() };
+                let mut rect = Default::default();
+                unsafe {
+                    GetWindowRect(desktop, &raw mut rect)?;
+                }
+                rect
+            };
+    
+            let desktop_width = desktop_size.right - desktop_size.left;
+            let desktop_height = desktop_size.bottom - desktop_size.top;
+
+            let x = (desktop_width - width) / 2;
+            let y = (desktop_height - height) / 2;
+
+            (x, y)
         };
 
         // I tried looking for another safe
@@ -68,22 +94,39 @@ impl RosinView {
                 // FIXME quick defaults, think about how to set these settings
                 windows::Win32::UI::WindowsAndMessaging::CreateWindowExW(
                     windows::Win32::UI::WindowsAndMessaging::WS_EX_OVERLAPPEDWINDOW,
-                    None, // window class; this is where the proc-function will be stored, so there will be a class created
-                    None, // window name; FIXME should have a parameter for this
+                    crate::platform::proc_fn::ROSIN_CLASS,
+                    // TODO check: From my testing this "clones" the string; Not 100% sure if it's sound or UB though
+                    desc.title
+                        .as_deref()
+                        .map(AsRef::<std::ffi::OsStr>::as_ref)
+                        .map(std::os::windows::ffi::OsStrExt::encode_wide)
+                        .map(Iterator::collect::<Vec<u16>>)
+                        .as_ref()
+                        .map(Vec::as_ptr)
+                        .map(windows::core::PCWSTR::from_raw)
+                        .as_ref(),
                     windows::Win32::UI::WindowsAndMessaging::WS_OVERLAPPEDWINDOW,
-                    50,   // x
-                    50,   // y
-                    240,  // width
-                    160,  // height
+                    x,
+                    y,
+                    width,
+                    height,
                     None, // parent
                     None, // menu
-                    None, // instance
+                    instance,
                     None, // window state; this will *probably* store the final state too
                 )?
             },
         };
 
+        unsafe {
+            ShowWindowAsync(view.hwnd, SW_NORMAL);
+        }
+
         Ok(view)
+    }
+
+    pub fn from_hwnd(hwnd: HWND) -> RosinView {
+        RosinView { hwnd }
     }
 
     pub fn hwnd(&self) -> HWND {
@@ -91,12 +134,8 @@ impl RosinView {
     }
 }
 
-impl Drop for RosinView {
-    fn drop(&mut self) {
+// impl Drop for RosinView {
+//     fn drop(&mut self) {
         
-    }
-}
-
-unsafe extern "system" fn proc(hwnd: HWND, msg: u32, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
-    DefWindowProcW(hwnd, msg, w_param, l_param)
-}
+//     }
+// }
