@@ -6,7 +6,7 @@ use crate::{
     platform::view::RosinView,
 };
 
-static _APP_STARTED: OnceLock<()> = OnceLock::new();
+static APP_STARTED: OnceLock<()> = OnceLock::new();
 
 pub(crate) struct AppLauncher<S: Sync + 'static> {
     windows: Vec<WindowDesc<S>>,
@@ -43,7 +43,24 @@ impl<S: Sync + 'static> AppLauncher<S> {
 
     // No hot-reload, no serde requirement
     #[cfg(not(all(feature = "hot-reload", debug_assertions)))]
-    pub fn run(mut self, state: S, translation_map: TranslationMap) -> Result<(), LaunchError> {
+    pub fn run(self, state: S, translation_map: TranslationMap) -> Result<(), LaunchError> {
+        self.run_impl(state, translation_map)
+    }
+
+    // Yes hot-reload, yes serde requirement
+    #[cfg(all(feature = "hot-reload", debug_assertions))]
+    pub fn run(mut self, mut _state: S, _translation_map: TranslationMap) -> Result<(), LaunchError>
+    where
+        S: serde::Serialize + serde::de::DeserializeOwned + crate::typehash::TypeHash + 'static,
+    {
+        todo!("Running debug mode with the `hot-reload` feature enabled.")
+    }
+
+    fn run_impl(mut self, state: S, translation_map: TranslationMap) -> Result<(), LaunchError> {
+        if APP_STARTED.set(()).is_err() {
+            return Err(LaunchError::AlreadyStarted);
+        }
+        
         use windows::Win32::UI::WindowsAndMessaging::{GetMessageW, TranslateMessage, DispatchMessageW, MSG};
 
         println!("Running {}", self.windows.first().unwrap().title.as_deref().unwrap_or("rosin app")); // TODO remove
@@ -72,8 +89,10 @@ impl<S: Sync + 'static> AppLauncher<S> {
 
         for window_desc in self.windows.iter() {
             // TODO: failiure to create a window should **not** cause a crash
-            // doing it this way so it's not ignored
-            RosinView::create_window(window_desc, Some(instance)).unwrap_or_else(
+            //       doing it this way so it's not ignored
+            // NOTE: `None` here means a `GetDesktopHwnd()` is needlessly called for each window
+            //       might cause (in)significant lag
+            RosinView::from_new_window(window_desc, Some(instance), None).unwrap_or_else(
                 |err| panic!("Failed to create window: \"{err}\"")
             );
         }
@@ -88,10 +107,12 @@ impl<S: Sync + 'static> AppLauncher<S> {
                 GetMessageW(&raw mut message, None, 0, 0)
             };
 
-            println!("{message:?}");
+            println!("{result:?}; {message:?}");
 
-            if let Err(_err) = result.ok() {
-                // maybe handle err
+            if result.0 <= 0 {
+                // if let Err(_err) = result.ok() {
+                //     // maybe handle err
+                // }
                 break;
             }
 
@@ -104,14 +125,5 @@ impl<S: Sync + 'static> AppLauncher<S> {
         };
 
         Ok(())
-    }
-
-    // Yes hot-reload, yes serde requirement
-    #[cfg(all(feature = "hot-reload", debug_assertions))]
-    pub fn run(mut self, mut _state: S, _translation_map: TranslationMap) -> Result<(), LaunchError>
-    where
-        S: serde::Serialize + serde::de::DeserializeOwned + crate::typehash::TypeHash + 'static,
-    {
-        todo!("Running debug mode with the `hot-reload` feature enabled.")
     }
 }

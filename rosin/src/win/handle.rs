@@ -12,7 +12,7 @@ pub(crate) struct WindowHandle {
     /// TODO make thread safe - force to only be accesable on the main thread
     /// Most likely to some extra struct
     ///  - Do the check internally or use the same MainKey kinda initialization as the macos version?
-    view: Arc<ThreadLockedView>
+    pub(in crate::win) view: Arc<ThreadLockedView>
 }
 
 impl Clone for WindowHandle {
@@ -96,22 +96,16 @@ impl WindowHandle {
     pub fn set_title(&self, _title: impl Into<String>) {}
 
     pub fn minimize(&self) {
-        use windows::Win32::UI::WindowsAndMessaging::SW_MINIMIZE;
-
-        self.view.try_on_thread(
-            |view| {
-                unsafe {
-                    windows::Win32::UI::WindowsAndMessaging::ShowWindowAsync(view.hwnd(), SW_MINIMIZE)
-                }
-            }
-        ).expect("Temporary crash fail when `minimize` is ran")
-         .ok()
-         .expect("Temporary crash fail when `minimize` is ran");
+        self.view.try_on_thread(RosinView::minimize).expect("Temporary crash fail when `minimize` is ran");
     }
 
-    pub fn maximize(&self) {}
+    pub fn maximize(&self) {
+        self.view.try_on_thread(RosinView::maximize).expect("Temporary crash fail when `minimize` is ran");
+    }
 
-    pub fn restore(&self) {}
+    pub fn restore(&self) {
+        self.view.try_on_thread(RosinView::restore).expect("Temporary crash fail when `minimize` is ran");
+    }
 
     pub fn set_cursor(&self, _cursor: CursorType) {}
 

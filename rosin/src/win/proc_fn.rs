@@ -1,18 +1,175 @@
 
+use std::ptr::NonNull;
+
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
-use windows::Win32::UI::WindowsAndMessaging::DefWindowProcW;
-use windows::core::{PCWSTR, w};
+use windows::Win32::Graphics::Gdi::{BeginPaint, COLOR_WINDOW, EndPaint, FillRect, HBRUSH, HDC, InvalidateRect, PAINTSTRUCT};
+use windows::Win32::UI::WindowsAndMessaging::{DefWindowProcW, WM_NCCREATE, WM_DESTROY, WM_PAINT, WM_SIZE};
+use windows::core::{PCWSTR, Error, w};
 
 use crate::{
-    platform::{view::RosinView, handle::WindowHandle},
+    platform::{
+        view::ViewState,
+    },
 };
 
+/// The main class of all windows on windows_os in rosin
 pub(crate) const ROSIN_CLASS: PCWSTR = w!("RosinGUI Windows Class");
+const OK: LRESULT = LRESULT(0);
 
+/// The main procedrual fuction for handling messages in rosin on windows
 pub(crate) unsafe extern "system" fn proc(hwnd: HWND, msg: u32, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
-    let view = RosinView::from_hwnd(hwnd);
-    let _handle = WindowHandle::new(view);
+    let view_state = match msg {
+        WM_NCCREATE => return unsafe {
+            #[cfg(debug_assertions)]
+            println!("Creating window `{hwnd:?}`");
+            DefWindowProcW(hwnd, msg, w_param, l_param)
+        },
+        _ => unsafe {
+            use windows::Win32::UI::WindowsAndMessaging::{
+                GetWindowLongPtrW,
+                GWLP_USERDATA,
+            };
 
-    #[allow(unsafe_op_in_unsafe_fn)]
-    DefWindowProcW(hwnd, msg, w_param, l_param)
+            NonNull::new(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut ViewState)
+        }
+    };
+
+    match msg {
+        WM_PAINT => {
+            let mut paint_struct = PAINTSTRUCT::default();
+            
+            unsafe {
+                let hdc = BeginPaint(hwnd, &raw mut paint_struct);
+
+                let result = if let Some(state) = view_state {
+                    paint(hwnd, hdc, paint_struct, state)
+                } else { Ok(()) };
+
+                let _ = EndPaint(hwnd, &raw mut paint_struct);
+
+                match result {
+                    Ok(()) => OK,
+                    Err(_) => LRESULT(-1),
+                }
+            }
+        },
+        WM_SIZE => if let Some(view_state) = view_state {
+            let resize = match w_param.0.max(10) as u32 {
+                windows::Win32::UI::WindowsAndMessaging::SIZE_RESTORED => Resize::Restore(0, 0),
+                windows::Win32::UI::WindowsAndMessaging::SIZE_MINIMIZED => Resize::Maximize,
+                windows::Win32::UI::WindowsAndMessaging::SIZE_MAXIMIZED => Resize::Maximize,
+                windows::Win32::UI::WindowsAndMessaging::SIZE_MAXHIDE => Resize::MaxHide,
+                windows::Win32::UI::WindowsAndMessaging::SIZE_MAXSHOW => Resize::MaxShow(0, 0),
+                _ => unreachable!("`w_param` should only have a value in `0..5`.")
+            };
+            
+            println!("{resize:?}");
+
+            unsafe {
+                match self::resize(hwnd, resize, view_state) {
+                    Ok(()) => OK,
+                    Err(_) => LRESULT(-1),
+                }
+            }
+        } else {
+            unsafe {
+                DefWindowProcW(hwnd, msg, w_param, l_param)
+            }
+        },
+        WM_DESTROY => {
+            unsafe {
+                DefWindowProcW(hwnd, msg, w_param, l_param)
+            }
+        },
+        _ => unsafe {
+            DefWindowProcW(hwnd, msg, w_param, l_param)
+        }
+    }
 }
+
+/// Ment to run when paining a portion of a window (usually on a WM_PAINT message)
+/// 
+/// SAFETY:
+///  - `hwnd` must be a valid handle
+///  - `state` must point to the memory addres of the `hwnd`s state
+///  - `state` must be initialized
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn paint(hwnd: HWND, hdc: HDC, mut paint_struct: PAINTSTRUCT, mut state: NonNull<ViewState>) -> Result<(), Error> {    
+    debug_assert!(!hwnd.is_invalid(), "`hwnd` at this point should be a valid window handle");
+    
+    let _ = FillRect(hdc, &raw mut paint_struct.rcPaint, HBRUSH(COLOR_WINDOW.0 as *mut _));
+
+    // SAFETY:
+    //  - `as_mut`: state is a valid ViewState
+    //  - `init_graphics`: hwnd is a valid handle
+    state.as_mut().init_graphics(hwnd)?;
+
+    Ok(())
+}
+
+/// Helper enum for resizing a window
+#[repr(u32)]
+#[derive(Debug)]
+enum Resize {
+    /// This window is restored
+    Restore(usize, usize) = windows::Win32::UI::WindowsAndMessaging::SIZE_RESTORED,
+
+    /// This window is minimized
+    Minimize = windows::Win32::UI::WindowsAndMessaging::SIZE_MINIMIZED,
+
+    /// This window is maximized
+    Maximize = windows::Win32::UI::WindowsAndMessaging::SIZE_MAXIMIZED,
+
+    /// Hide due to another window maximizing
+    MaxHide = windows::Win32::UI::WindowsAndMessaging::SIZE_MAXHIDE,
+
+    /// Show due to another window being restored/minimized
+    MaxShow(usize, usize) = windows::Win32::UI::WindowsAndMessaging::SIZE_MAXSHOW,
+}
+
+/// Ment to run when a window is resized (aka on a WM_SIZE message or simmilar)
+/// 
+/// SAFETY:
+///  - `hwnd` must be a valid handle
+///  - `state` must point to the memory addres of the `hwnd`s state
+///  - `state` must be initialized
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn resize(hwnd: HWND, _resize: Resize, state: NonNull<ViewState>) -> Result<(), windows::core::Error> {
+    debug_assert!(!hwnd.is_invalid(), "`hwnd` at this point should be a valid window handle");
+
+    use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
+    use windows::Win32::Graphics::Direct2D::Common::D2D_SIZE_U;
+
+    // SAFETY: state is a valid ViewState
+    if let Some(render_target) = unsafe { &state.as_ref().render_target }
+    {
+        let mut rc = Default::default();
+        // SAFETY:
+        //  - hwnd is a valid handle
+        //  - hwnd is a valid handle
+        GetClientRect(hwnd, &raw mut rc)?;
+
+        let size = D2D_SIZE_U {
+            width: rc.right as u32,
+            height: rc.bottom as u32,
+        };
+
+        unsafe {
+            // SAFETY: &raw const size is a valid pointer to a D2D_SIZE_U
+            render_target.Resize(&raw const size)?;
+            // calculate_layout(render_target);
+        }
+        
+        InvalidateRect(Some(hwnd), None, false).ok()?;
+    }
+    
+    Ok(())
+}
+
+// unsafe fn calculate_layout(render_target: NonNull<ID2D1HwndRenderTarget>) {
+//     let size = (*render_target.as_ptr()).GetSize();
+//     let x = size.width / 2.0;
+//     let y = size.height / 2.0;
+//     let radius = f32::min(x, y);
+//     ellipse = D2D1::Ellipse(D2D1::Point2F(x, y), radius, radius);
+// }
