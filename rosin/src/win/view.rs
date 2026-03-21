@@ -101,6 +101,9 @@ impl RosinView {
             let desktop_size = {
                 let mut rect = Default::default();
                 unsafe {
+                    // SAFETY:
+                    //  - desktop is a valid window handle
+                    //  - &raw mut rect is a valid RECT address
                     GetWindowRect(desktop, &raw mut rect)?;
                 }
                 rect
@@ -217,6 +220,7 @@ impl RosinView {
         use windows::Win32::UI::WindowsAndMessaging::SW_MINIMIZE;
 
         unsafe {
+            // SAFETY: all given values are valid
             let _ = windows::Win32::UI::WindowsAndMessaging::ShowWindow(self.hwnd(), SW_MINIMIZE);
         }
     }
@@ -225,6 +229,7 @@ impl RosinView {
         use windows::Win32::UI::WindowsAndMessaging::SW_MAXIMIZE;
 
         unsafe {
+            // SAFETY: all given values are valid
             let _ = windows::Win32::UI::WindowsAndMessaging::ShowWindow(self.hwnd(), SW_MAXIMIZE);
         }
     }
@@ -233,6 +238,7 @@ impl RosinView {
         use windows::Win32::UI::WindowsAndMessaging::SW_RESTORE;
 
         unsafe {
+            // SAFETY: all given values are valid
             let _ = windows::Win32::UI::WindowsAndMessaging::ShowWindow(self.hwnd(), SW_RESTORE);
         }
     }

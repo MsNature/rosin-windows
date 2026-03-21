@@ -22,6 +22,8 @@ pub(crate) unsafe extern "system" fn proc(hwnd: HWND, msg: u32, w_param: WPARAM,
         WM_NCCREATE => return unsafe {
             #[cfg(debug_assertions)]
             println!("Creating window `{hwnd:?}`");
+
+            // SAFETY: parameters are given as is => they are all valid
             DefWindowProcW(hwnd, msg, w_param, l_param)
         },
         _ => unsafe {
@@ -30,7 +32,14 @@ pub(crate) unsafe extern "system" fn proc(hwnd: HWND, msg: u32, w_param: WPARAM,
                 GWLP_USERDATA,
             };
 
-            NonNull::new(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut ViewState)
+            if cfg!(debug_assertions) && hwnd.is_invalid() {
+                eprintln!("window handle `{hwnd:?}` is invalid!");
+                None
+            } else {
+                // SAFETY:
+                //  - hwnd is a valid handle
+                NonNull::new(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut ViewState)
+            }
         }
     };
 
@@ -38,34 +47,48 @@ pub(crate) unsafe extern "system" fn proc(hwnd: HWND, msg: u32, w_param: WPARAM,
         WM_PAINT => {
             let mut paint_struct = PAINTSTRUCT::default();
             
-            unsafe {
-                let hdc = BeginPaint(hwnd, &raw mut paint_struct);
+            let hdc = unsafe {
+                // SAFETY: all given inputs point to valid data
+                BeginPaint(hwnd, &raw mut paint_struct)
+            };
 
-                let result = if let Some(state) = view_state {
+            let result = if let Some(state) = view_state {
+                unsafe {
+                    // SAFETY: all given inputs point to valid data
                     paint(hwnd, hdc, paint_struct, state)
-                } else { Ok(()) };
-
-                let _ = EndPaint(hwnd, &raw mut paint_struct);
-
-                match result {
-                    Ok(()) => OK,
-                    Err(_) => LRESULT(-1),
                 }
+            } else { Ok(()) };
+
+            unsafe {
+                // SAFETY: all given inputs point to valid data
+                let _ = EndPaint(hwnd, &raw mut paint_struct);
+            }
+
+            match result {
+                Ok(()) => OK,
+                Err(_) => LRESULT(-1),
             }
         },
         WM_SIZE => if let Some(view_state) = view_state {
             let resize = match w_param.0.max(10) as u32 {
-                windows::Win32::UI::WindowsAndMessaging::SIZE_RESTORED => Resize::Restore(0, 0),
+                windows::Win32::UI::WindowsAndMessaging::SIZE_RESTORED => {
+                    Resize::Restore(0, 0)
+                },
                 windows::Win32::UI::WindowsAndMessaging::SIZE_MINIMIZED => Resize::Maximize,
                 windows::Win32::UI::WindowsAndMessaging::SIZE_MAXIMIZED => Resize::Maximize,
                 windows::Win32::UI::WindowsAndMessaging::SIZE_MAXHIDE => Resize::MaxHide,
-                windows::Win32::UI::WindowsAndMessaging::SIZE_MAXSHOW => Resize::MaxShow(0, 0),
+                windows::Win32::UI::WindowsAndMessaging::SIZE_MAXSHOW => {
+                    Resize::MaxShow(0, 0)
+                },
                 _ => unreachable!("`w_param` should only have a value in `0..5`.")
             };
             
             println!("{resize:?}");
 
             unsafe {
+                // SAFETY:
+                //  - hwnd is a valid handle
+                //  - view_state is initialized as a valid ViewState
                 match self::resize(hwnd, resize, view_state) {
                     Ok(()) => OK,
                     Err(_) => LRESULT(-1),
@@ -73,15 +96,18 @@ pub(crate) unsafe extern "system" fn proc(hwnd: HWND, msg: u32, w_param: WPARAM,
             }
         } else {
             unsafe {
+                // SAFETY: parameters are given as is => they are all valid
                 DefWindowProcW(hwnd, msg, w_param, l_param)
             }
         },
         WM_DESTROY => {
             unsafe {
+                // SAFETY: parameters are given as is => they are all valid
                 DefWindowProcW(hwnd, msg, w_param, l_param)
             }
         },
         _ => unsafe {
+            // SAFETY: parameters are given as is => they are all valid
             DefWindowProcW(hwnd, msg, w_param, l_param)
         }
     }
@@ -91,6 +117,8 @@ pub(crate) unsafe extern "system" fn proc(hwnd: HWND, msg: u32, w_param: WPARAM,
 /// 
 /// SAFETY:
 ///  - `hwnd` must be a valid handle
+///  - `hdc` must be from the `hwnd` handle
+///  - `paint_struct` must be from the `hwnd` handle
 ///  - `state` must point to the memory addres of the `hwnd`s state
 ///  - `state` must be initialized
 #[allow(unsafe_op_in_unsafe_fn)]
@@ -160,6 +188,9 @@ unsafe fn resize(hwnd: HWND, _resize: Resize, state: NonNull<ViewState>) -> Resu
             // calculate_layout(render_target);
         }
         
+        // SAFETY:
+        //  - hwnd is a valid window handle
+        //  - all other inputs are valid
         InvalidateRect(Some(hwnd), None, false).ok()?;
     }
     
