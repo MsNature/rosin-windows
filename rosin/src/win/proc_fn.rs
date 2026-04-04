@@ -3,7 +3,7 @@ use std::ptr::NonNull;
 
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::Graphics::Gdi::{BeginPaint, COLOR_WINDOW, EndPaint, FillRect, HBRUSH, HDC, InvalidateRect, PAINTSTRUCT};
-use windows::Win32::UI::WindowsAndMessaging::{DefWindowProcW, WM_NCCREATE, WM_DESTROY, WM_PAINT, WM_SIZE};
+use windows::Win32::UI::WindowsAndMessaging::{DefWindowProcW, PostQuitMessage, WM_DESTROY, WM_NCCREATE, WM_PAINT, WM_SIZE};
 use windows::core::{PCWSTR, Error, w};
 
 use crate::{
@@ -102,8 +102,9 @@ pub(crate) unsafe extern "system" fn proc(hwnd: HWND, msg: u32, w_param: WPARAM,
         },
         WM_DESTROY => {
             unsafe {
-                // SAFETY: parameters are given as is => they are all valid
-                DefWindowProcW(hwnd, msg, w_param, l_param)
+                // SAFETY: the window is getting distroyed here
+                PostQuitMessage(0);
+                return OK;
             }
         },
         _ => unsafe {

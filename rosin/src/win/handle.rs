@@ -66,12 +66,17 @@ impl WindowHandle {
     }
 
     pub fn is_active(&self) -> bool {
+        // IsWindowEnabled 
         true
     }
 
-    pub fn activate(&self) {}
+    pub fn activate(&self) {
+        // EnableWindow (set to false)
+    }
 
-    pub fn deactivate(&self) {}
+    pub fn deactivate(&self) {
+        // SetActiveWindow 
+    }
 
     pub fn set_menu(&self, _menu: impl Into<Option<MenuDesc>>) {}
 
@@ -87,11 +92,75 @@ impl WindowHandle {
 
     pub fn set_min_size(&self, _size: Option<impl Into<Size>>) {}
 
-    pub fn set_position(&self, _position: impl Into<Point>) {}
+    pub fn set_position(&self, position: impl Into<Point>) {
+        use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_ASYNCWINDOWPOS, SWP_NOSIZE, SWP_NOZORDER};
+        use crate::platform::view::f64_to_i32;
+
+        let position = position.into();
+
+        unsafe {
+            // SAFETY: SWP_ASYNCWINDOWPOS guarantees thread safety
+            self.view.try_on_trust(
+                move |view| {
+                    // SAFETY:
+                    //  - view.hwnd() is a valid handle
+                    //  - None is a valid optional handle
+                    //  - SWP_ASYNCWINDOWPOS, SWP_NOSIZE and SWP_NOZORDER are a valid value when xor'ed
+                    let _res = SetWindowPos(
+                        view.hwnd(),
+                        None,
+                        f64_to_i32(position.x),
+                        f64_to_i32(position.y),
+                        0,
+                        0,
+                        SWP_ASYNCWINDOWPOS | SWP_NOSIZE | SWP_NOZORDER
+                    );
+
+                    #[cfg(debug_assertions)]
+                    if let Err(err) = _res {
+                        eprintln!("`set_size` failed to change the size for `{hwnd:?}` \"{err}\": {err:#?}", hwnd = view.hwnd())
+                    }
+                }
+            )
+        }
+    }
 
     pub fn set_resizable(&self, _resizeable: bool) {}
 
-    pub fn set_size(&self, _size: impl Into<Size>) {}
+    pub fn set_size(&self, size: impl Into<Size>) {
+        use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_ASYNCWINDOWPOS, SWP_NOMOVE, SWP_NOZORDER};
+        use crate::platform::view::f64_to_i32;
+
+        let size = size.into();
+
+        unsafe {
+            // SAFETY: SWP_ASYNCWINDOWPOS guarantees thread safety
+            self.view.try_on_trust(
+                move |view| {
+                    // SAFETY:
+                    //  - view.hwnd() is a valid handle
+                    //  - None is a valid optional handle
+                    //  - SWP_ASYNCWINDOWPOS, SWP_NOMOVE and SWP_NOZORDER are a valid value when xor'ed
+                    let _res = SetWindowPos(
+                        view.hwnd(),
+                        None,
+                        0,
+                        0,
+                        f64_to_i32(size.width),
+                        f64_to_i32(size.height),
+                        SWP_ASYNCWINDOWPOS | SWP_NOMOVE | SWP_NOZORDER
+                    );
+
+                    #[cfg(debug_assertions)]
+                    if let Err(err) = _res {
+                        eprintln!("`set_size` failed to change the size for `{hwnd:?}` \"{err}\": {err:#?}", hwnd = view.hwnd())
+                    }
+                }
+            )
+        }
+    }
+
+    // NOTE: maybe add a `set_position_and_size` method for microptimizations?
 
     pub fn set_title(&self, _title: impl Into<String>) {}
 
@@ -107,7 +176,18 @@ impl WindowHandle {
         self.view.try_on_thread(RosinView::restore).expect("Temporary crash fail when `minimize` is ran");
     }
 
-    pub fn set_cursor(&self, _cursor: CursorType) {}
+    pub fn set_cursor(&self, _cursor: CursorType) {
+        unsafe {
+            // FUTURE SAFETY: Gonna use async functions for queuing setting the cursor within the messege queue
+            // CURRENT SAFETY: nothing is done with `hwnd`
+            self.view.try_on_trust(
+                |view| {
+                    let hwnd = view.hwnd();
+                    todo!("yet")
+                }
+            )
+        }
+    }
 
     pub fn hide_cursor(&self) {}
 

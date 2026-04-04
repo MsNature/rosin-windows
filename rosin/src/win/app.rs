@@ -87,22 +87,26 @@ impl<S: Sync + 'static> AppLauncher<S> {
         self.state = Some(Rc::new(RefCell::new(state)));
         self.translation_map = Some(translation_map);
 
-        for window_desc in self.windows.iter() {
-            // TODO: failiure to create a window should **not** cause a crash
-            //       doing it this way so it's not ignored
-            // NOTE: `None` here means a `GetDesktopHwnd()` is needlessly called for each window
-            //       might cause (in)significant lag
-            RosinView::from_new_window(window_desc, Some(instance), None).unwrap_or_else(
-                |err| panic!("Failed to create window: \"{err}\"")
-            );
-        }
+
+        let _window_handles: Vec<_> = self.windows
+            .iter()
+            .map(
+                |window_desc| RosinView::from_new_window(window_desc, Some(instance), None)
+                .unwrap_or_else(
+                    |err| todo!("Failed to create window: \"{err}\"")
+                )
+            )
+            .map(crate::platform::handle::WindowHandle::new)
+            .collect();
 
         let mut message = MSG::default();
 
-        println!("Starting Rosin Loop");
+        println!("\nStarting Rosin Loop...");
 
         // TODO decide: how threading works here (since windows *can* come from diferent threads)
         loop {
+            println!("\nInitializing new message...");
+
             let result = unsafe {
                 GetMessageW(&raw mut message, None, 0, 0)
             };
@@ -110,9 +114,14 @@ impl<S: Sync + 'static> AppLauncher<S> {
             println!("{result:?}; {message:?}");
 
             if result.0 <= 0 {
-                // if let Err(_err) = result.ok() {
-                //     // maybe handle err
-                // }
+                eprintln!("WARNING: The current implementation may stop the loop and may stop the program once one window closes");
+                match result.0 {
+                    0 => println!("\nStoping Rosin Loop..."),
+                    code => {
+                        let err = windows::core::Error::from_thread();
+                        println!("Crashing Rosin Loop `{code:4X}` \"{err}\":\n - {err:#?}")
+                    }
+                }
                 break;
             }
 

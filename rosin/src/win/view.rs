@@ -4,7 +4,7 @@ use std::{any::Any, time::Duration};
 use windows::Win32::Foundation::RECT;
 use windows::Win32::Graphics::Direct2D::Common::D2D_SIZE_U;
 use windows::Win32::System::Threading::GetCurrentThreadId;
-use windows::Win32::UI::WindowsAndMessaging::{GetClientRect, GetDesktopWindow, GetWindowRect, GetWindowThreadProcessId, SW_NORMAL, ShowWindowAsync};
+use windows::Win32::UI::WindowsAndMessaging::{GetClientRect, GetDesktopWindow, GetWindowRect, GetWindowThreadProcessId, HMENU, SW_NORMAL, ShowWindowAsync};
 use windows::Win32::Foundation::{HINSTANCE, HWND};
 use windows::core::Error;
 
@@ -50,6 +50,15 @@ impl ThreadLockedView {
         (self.thread_id == current_id).then(|| f(&self.view))
     }
 
+    /// SAFETY: All actions performed on the given `&RosinView` must be locked to the thread `RosinView` was created on.
+    pub unsafe fn try_on_trust<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&RosinView) -> R + Sync + 'static,
+        R: Sync + 'static,
+    {
+        f(&self.view)
+    }
+
     pub fn queue_on_thread<F>(&self, f: F)
     where
         F: FnOnce(&RosinView) + Sync + 'static
@@ -77,8 +86,51 @@ pub(crate) struct RosinView {
 }
 
 // here to easely change the impl later
-fn f64_to_i32(f: f64) -> i32 {
+pub(crate) fn f64_to_i32(f: f64) -> i32 {
     f as i32
+}
+
+fn menu(desc: MenuDesc) -> Result<HMENU, Error> {
+    use windows::Win32::UI::WindowsAndMessaging::CreateMenu;
+    use crate::menu::MenuItem;
+
+    let menu = unsafe {
+        // SAFETY: No inputs => all inputs are valid (yipee)
+        CreateMenu()?
+    };
+
+    // use the InsertMenuItem, AppendMenu, and InsertMenu functions
+
+    for item in desc.items.iter() {
+        match item {
+            MenuItem::Action {
+                title,
+                command,
+                shortcut,
+                enabled,
+                selected,
+            } => {
+                todo!("adding an action within a menu")
+            }
+            MenuItem::Submenu {
+                title,
+                menu,
+                enabled,
+            } => {
+                todo!("adding a submenu within a menu")
+            }
+            MenuItem::Standard(
+                standard,
+            ) => {
+                todo!("adding a standard action within a menu")
+            }
+            MenuItem::Separator => {
+                todo!("adding a separator within a menu")
+            }
+        }
+    }
+
+    Ok(menu)
 }
 
 // TODO: implement all the unused (menu) stuff
@@ -122,6 +174,10 @@ impl RosinView {
             ViewState::new()
         );
 
+        let Ok(menu) = desc.menu.clone().map(menu).transpose() else {
+            todo!("handling failure to create menu gracefully (aka returning an error)")
+        };
+
         // I tried looking for another safe
         // or at least safer api for creating a window,
         // but for now this should hopefully do.
@@ -147,7 +203,7 @@ impl RosinView {
                     width,
                     height,
                     Some(parent.map(|handle| handle.0.view.view.hwnd).unwrap_or(desktop)),
-                    None, // menu
+                    menu,
                     instance,
                     Some(Box::leak(view_state) as *mut _ as *const _),
                 )?
