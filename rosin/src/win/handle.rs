@@ -101,6 +101,7 @@ impl WindowHandle {
         let position = position.into();
 
         unsafe {
+            // TEMP SAFETY: read the **WIN32 THREAD SAFETY** comment from `.../rosin/src/win/mod.rs`
             // SAFETY: SWP_ASYNCWINDOWPOS guarantees thread safety
             self.view.try_on_trust(move |view| {
                 // SAFETY:
@@ -118,7 +119,28 @@ impl WindowHandle {
         }
     }
 
-    pub fn set_resizable(&self, _resizeable: bool) {}
+    pub fn set_resizable(&self, resizeable: bool) {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SetWindowLongPtrW,
+            GetWindowLongPtrW,
+            GWL_STYLE,
+            WS_SIZEBOX,
+        };
+
+        unsafe {
+            // TEMP SAFETY: read the **WIN32 THREAD SAFETY** comment from `.../rosin/src/win/mod.rs`
+            self.view.try_on_trust(
+                move |view| {
+                    let style = GetWindowLongPtrW(view.hwnd(), GWL_STYLE);
+                    
+                    match resizeable {
+                        true => SetWindowLongPtrW(view.hwnd(), GWL_STYLE, style | WS_SIZEBOX.0 as isize),
+                        false => SetWindowLongPtrW(view.hwnd(), GWL_STYLE, style & !(WS_SIZEBOX.0 as isize)),
+                    };
+                }
+            )
+        }
+    }
 
     pub fn set_size(&self, size: impl Into<Size>) {
         use crate::platform::view::f64_to_i32;
@@ -127,6 +149,7 @@ impl WindowHandle {
         let size = size.into();
 
         unsafe {
+            // TEMP SAFETY: read the **WIN32 THREAD SAFETY** comment from `.../rosin/src/win/mod.rs`
             // SAFETY: SWP_ASYNCWINDOWPOS guarantees thread safety
             self.view.try_on_trust(move |view| {
                 // SAFETY:
@@ -168,6 +191,7 @@ impl WindowHandle {
 
     pub fn set_cursor(&self, _cursor: CursorType) {
         unsafe {
+            // TEMP SAFETY: read the **WIN32 THREAD SAFETY** comment from `.../rosin/src/win/mod.rs`
             // FUTURE SAFETY: Gonna use async functions for queuing setting the cursor within the messege queue
             // CURRENT SAFETY: nothing is done with `hwnd`
             self.view.try_on_trust(|view| {

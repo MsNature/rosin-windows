@@ -150,6 +150,17 @@ fn menu(desc: MenuDesc) -> Result<HMENU, Error> {
 // TODO: implement all the unused (menu) stuff
 impl RosinView {
     pub fn from_new_window<S: 'static>(desc: &WindowDesc<S>, instance: Option<HINSTANCE>, parent: Option<WindowHandle>) -> Result<RosinView, Error> {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            WINDOW_STYLE,
+
+            WS_EX_OVERLAPPEDWINDOW,
+            WS_CAPTION,
+            WS_SYSMENU,
+            WS_SIZEBOX,
+            WS_MINIMIZEBOX,
+            WS_MAXIMIZEBOX,
+        };
+        
         println!("Initializing rosin view");
 
         let desktop = unsafe { GetDesktopWindow() };
@@ -188,6 +199,28 @@ impl RosinView {
             todo!("handling failure to create menu gracefully (aka returning an error)")
         };
 
+        let window_style = {
+            let mut window_style = WS_CAPTION | WS_SYSMENU;
+
+            if !desc.close_button {
+                todo!("removing the (unsuported officially) close button")
+            }
+
+            if desc.maximize_button {
+                window_style = window_style | WS_MAXIMIZEBOX;
+            }
+
+            if desc.minimize_button {
+                window_style = window_style | WS_MINIMIZEBOX;
+            }
+
+            if desc.resizeable {
+                window_style = window_style | WS_SIZEBOX;
+            }
+
+            window_style
+        };
+
         // I tried looking for another safe
         // or at least safer api for creating a window,
         // but for now this should hopefully do.
@@ -195,19 +228,20 @@ impl RosinView {
             hwnd: unsafe {
                 // FIXME add safety comments
                 windows::Win32::UI::WindowsAndMessaging::CreateWindowExW(
-                    windows::Win32::UI::WindowsAndMessaging::WS_EX_OVERLAPPEDWINDOW,
+                    WS_EX_OVERLAPPEDWINDOW,
                     crate::platform::proc_fn::ROSIN_CLASS,
                     // TODO check: From my testing this "clones" the string; Not 100% sure if it's sound or UB though
                     desc.title
                         .as_deref()
                         .map(AsRef::<std::ffi::OsStr>::as_ref)
                         .map(std::os::windows::ffi::OsStrExt::encode_wide)
+                        .map(|iter| std::iter::chain(iter, std::iter::once(0)))
                         .map(Iterator::collect::<Vec<u16>>)
                         .as_ref()
                         .map(Vec::as_ptr)
                         .map(windows::core::PCWSTR::from_raw)
                         .as_ref(),
-                    windows::Win32::UI::WindowsAndMessaging::WS_OVERLAPPEDWINDOW,
+                    window_style,
                     x,
                     y,
                     width,
@@ -274,11 +308,7 @@ impl RosinView {
 
     pub fn set_min_size(&self, _size: Option<impl Into<Size>>) {}
 
-    pub fn set_position(&self, _position: impl Into<Point>) {}
-
     pub fn set_resizable(&self, _resizeable: bool) {}
-
-    pub fn set_size(&self, _size: impl Into<Size>) {}
 
     pub fn set_title(&self, _title: impl Into<String>) {}
 
@@ -287,7 +317,7 @@ impl RosinView {
 
         unsafe {
             // SAFETY: all given values are valid
-            let _ = windows::Win32::UI::WindowsAndMessaging::ShowWindow(self.hwnd(), SW_MINIMIZE);
+            let _ = windows::Win32::UI::WindowsAndMessaging::ShowWindowAsync(self.hwnd(), SW_MINIMIZE);
         }
     }
 
@@ -296,7 +326,7 @@ impl RosinView {
 
         unsafe {
             // SAFETY: all given values are valid
-            let _ = windows::Win32::UI::WindowsAndMessaging::ShowWindow(self.hwnd(), SW_MAXIMIZE);
+            let _ = windows::Win32::UI::WindowsAndMessaging::ShowWindowAsync(self.hwnd(), SW_MAXIMIZE);
         }
     }
 
@@ -305,7 +335,7 @@ impl RosinView {
 
         unsafe {
             // SAFETY: all given values are valid
-            let _ = windows::Win32::UI::WindowsAndMessaging::ShowWindow(self.hwnd(), SW_RESTORE);
+            let _ = windows::Win32::UI::WindowsAndMessaging::ShowWindowAsync(self.hwnd(), SW_RESTORE);
         }
     }
 
