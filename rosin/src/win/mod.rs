@@ -1,4 +1,3 @@
-
 // TODO:
 //  - Queueing & Blocking on thread
 //      - Make a noop abstraction layer because the functions **may** be thread safe
@@ -11,5 +10,5 @@
 pub mod app;
 pub mod handle;
 
-mod view;
 mod proc_fn;
+mod view;

@@ -1,16 +1,11 @@
-
 use std::ptr::NonNull;
 
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::Graphics::Gdi::{BeginPaint, COLOR_WINDOW, EndPaint, FillRect, HBRUSH, HDC, InvalidateRect, PAINTSTRUCT};
 use windows::Win32::UI::WindowsAndMessaging::{DefWindowProcW, PostQuitMessage, WM_DESTROY, WM_NCCREATE, WM_PAINT, WM_SIZE};
-use windows::core::{PCWSTR, Error, w};
+use windows::core::{Error, PCWSTR, w};
 
-use crate::{
-    platform::{
-        view::ViewState,
-    },
-};
+use crate::platform::view::ViewState;
 
 /// The main class of all windows on windows_os in rosin
 pub(crate) const ROSIN_CLASS: PCWSTR = w!("RosinGUI Windows Class");
@@ -19,18 +14,17 @@ const OK: LRESULT = LRESULT(0);
 /// The main procedrual fuction for handling messages in rosin on windows
 pub(crate) unsafe extern "system" fn proc(hwnd: HWND, msg: u32, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
     let view_state = match msg {
-        WM_NCCREATE => return unsafe {
-            #[cfg(debug_assertions)]
-            println!("Creating window `{hwnd:?}`");
+        WM_NCCREATE => {
+            return unsafe {
+                #[cfg(debug_assertions)]
+                println!("Creating window `{hwnd:?}`");
 
-            // SAFETY: parameters are given as is => they are all valid
-            DefWindowProcW(hwnd, msg, w_param, l_param)
-        },
-        _ => unsafe {
-            use windows::Win32::UI::WindowsAndMessaging::{
-                GetWindowLongPtrW,
-                GWLP_USERDATA,
+                // SAFETY: parameters are given as is => they are all valid
+                DefWindowProcW(hwnd, msg, w_param, l_param)
             };
+        }
+        _ => unsafe {
+            use windows::Win32::UI::WindowsAndMessaging::{GWLP_USERDATA, GetWindowLongPtrW};
 
             if cfg!(debug_assertions) && hwnd.is_invalid() {
                 eprintln!("window handle `{hwnd:?}` is invalid!");
@@ -40,13 +34,13 @@ pub(crate) unsafe extern "system" fn proc(hwnd: HWND, msg: u32, w_param: WPARAM,
                 //  - hwnd is a valid handle
                 NonNull::new(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut ViewState)
             }
-        }
+        },
     };
 
     match msg {
         WM_PAINT => {
             let mut paint_struct = PAINTSTRUCT::default();
-            
+
             let hdc = unsafe {
                 // SAFETY: all given inputs point to valid data
                 BeginPaint(hwnd, &raw mut paint_struct)
@@ -57,7 +51,9 @@ pub(crate) unsafe extern "system" fn proc(hwnd: HWND, msg: u32, w_param: WPARAM,
                     // SAFETY: all given inputs point to valid data
                     paint(hwnd, hdc, paint_struct, state)
                 }
-            } else { Ok(()) };
+            } else {
+                Ok(())
+            };
 
             unsafe {
                 // SAFETY: all given inputs point to valid data
@@ -68,54 +64,53 @@ pub(crate) unsafe extern "system" fn proc(hwnd: HWND, msg: u32, w_param: WPARAM,
                 Ok(()) => OK,
                 Err(_) => LRESULT(-1),
             }
-        },
-        WM_SIZE => if let Some(view_state) = view_state {
-            let resize = match w_param.0.max(10) as u32 {
-                windows::Win32::UI::WindowsAndMessaging::SIZE_RESTORED => {
-                    Resize::Restore(0, 0)
-                },
-                windows::Win32::UI::WindowsAndMessaging::SIZE_MINIMIZED => Resize::Maximize,
-                windows::Win32::UI::WindowsAndMessaging::SIZE_MAXIMIZED => Resize::Maximize,
-                windows::Win32::UI::WindowsAndMessaging::SIZE_MAXHIDE => Resize::MaxHide,
-                windows::Win32::UI::WindowsAndMessaging::SIZE_MAXSHOW => {
-                    Resize::MaxShow(0, 0)
-                },
-                _ => unreachable!("`w_param` should only have a value in `0..5`.")
-            };
-            
-            println!("{resize:?}");
+        }
+        WM_SIZE => {
+            if let Some(view_state) = view_state {
+                let resize = match w_param.0.max(10) as u32 {
+                    windows::Win32::UI::WindowsAndMessaging::SIZE_RESTORED => Resize::Restore(0, 0),
+                    windows::Win32::UI::WindowsAndMessaging::SIZE_MINIMIZED => Resize::Maximize,
+                    windows::Win32::UI::WindowsAndMessaging::SIZE_MAXIMIZED => Resize::Maximize,
+                    windows::Win32::UI::WindowsAndMessaging::SIZE_MAXHIDE => Resize::MaxHide,
+                    windows::Win32::UI::WindowsAndMessaging::SIZE_MAXSHOW => Resize::MaxShow(0, 0),
+                    _ => unreachable!("`w_param` should only have a value in `0..5`."),
+                };
 
-            unsafe {
-                // SAFETY:
-                //  - hwnd is a valid handle
-                //  - view_state is initialized as a valid ViewState
-                match self::resize(hwnd, resize, view_state) {
-                    Ok(()) => OK,
-                    Err(_) => LRESULT(-1),
+                println!("{resize:?}");
+
+                unsafe {
+                    // SAFETY:
+                    //  - hwnd is a valid handle
+                    //  - view_state is initialized as a valid ViewState
+                    match self::resize(hwnd, resize, view_state) {
+                        Ok(()) => OK,
+                        Err(_) => LRESULT(-1),
+                    }
+                }
+            } else {
+                unsafe {
+                    // SAFETY: parameters are given as is => they are all valid
+                    DefWindowProcW(hwnd, msg, w_param, l_param)
                 }
             }
-        } else {
-            unsafe {
-                // SAFETY: parameters are given as is => they are all valid
-                DefWindowProcW(hwnd, msg, w_param, l_param)
-            }
-        },
+        }
         WM_DESTROY => {
             unsafe {
                 // SAFETY: the window is getting distroyed here
+                // UNSAFETY(?): Other windows are ignored
                 PostQuitMessage(0);
                 return OK;
             }
-        },
+        }
         _ => unsafe {
             // SAFETY: parameters are given as is => they are all valid
             DefWindowProcW(hwnd, msg, w_param, l_param)
-        }
+        },
     }
 }
 
 /// Ment to run when paining a portion of a window (usually on a WM_PAINT message)
-/// 
+///
 /// SAFETY:
 ///  - `hwnd` must be a valid handle
 ///  - `hdc` must be from the `hwnd` handle
@@ -123,9 +118,9 @@ pub(crate) unsafe extern "system" fn proc(hwnd: HWND, msg: u32, w_param: WPARAM,
 ///  - `state` must point to the memory addres of the `hwnd`s state
 ///  - `state` must be initialized
 #[allow(unsafe_op_in_unsafe_fn)]
-unsafe fn paint(hwnd: HWND, hdc: HDC, mut paint_struct: PAINTSTRUCT, mut state: NonNull<ViewState>) -> Result<(), Error> {    
+unsafe fn paint(hwnd: HWND, hdc: HDC, mut paint_struct: PAINTSTRUCT, mut state: NonNull<ViewState>) -> Result<(), Error> {
     debug_assert!(!hwnd.is_invalid(), "`hwnd` at this point should be a valid window handle");
-    
+
     let _ = FillRect(hdc, &raw mut paint_struct.rcPaint, HBRUSH(COLOR_WINDOW.0 as *mut _));
 
     // SAFETY:
@@ -157,7 +152,7 @@ enum Resize {
 }
 
 /// Ment to run when a window is resized (aka on a WM_SIZE message or simmilar)
-/// 
+///
 /// SAFETY:
 ///  - `hwnd` must be a valid handle
 ///  - `state` must point to the memory addres of the `hwnd`s state
@@ -166,12 +161,11 @@ enum Resize {
 unsafe fn resize(hwnd: HWND, _resize: Resize, state: NonNull<ViewState>) -> Result<(), windows::core::Error> {
     debug_assert!(!hwnd.is_invalid(), "`hwnd` at this point should be a valid window handle");
 
-    use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
     use windows::Win32::Graphics::Direct2D::Common::D2D_SIZE_U;
+    use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
 
     // SAFETY: state is a valid ViewState
-    if let Some(render_target) = unsafe { &state.as_ref().render_target }
-    {
+    if let Some(render_target) = unsafe { &state.as_ref().render_target } {
         let mut rc = Default::default();
         // SAFETY:
         //  - hwnd is a valid handle
@@ -188,13 +182,13 @@ unsafe fn resize(hwnd: HWND, _resize: Resize, state: NonNull<ViewState>) -> Resu
             render_target.Resize(&raw const size)?;
             // calculate_layout(render_target);
         }
-        
+
         // SAFETY:
         //  - hwnd is a valid window handle
         //  - all other inputs are valid
         InvalidateRect(Some(hwnd), None, false).ok()?;
     }
-    
+
     Ok(())
 }
 

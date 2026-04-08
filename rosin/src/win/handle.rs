@@ -1,10 +1,10 @@
-use std::{any::Any, sync::Arc, num::NonZeroIsize, time::Duration};
+use std::{any::Any, num::NonZeroIsize, sync::Arc, time::Duration};
 
-use raw_window_handle::{DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawWindowHandle, WindowHandle as RWHWindowHandle, Win32WindowHandle};
+use raw_window_handle::{DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle as RWHWindowHandle};
 
 use crate::{
-    platform::view::{ThreadLockedView, RosinView},
     kurbo::{Point, Size},
+    platform::view::{RosinView, ThreadLockedView},
     prelude::*,
 };
 
@@ -12,7 +12,7 @@ pub(crate) struct WindowHandle {
     /// TODO make thread safe - force to only be accesable on the main thread
     /// Most likely to some extra struct
     ///  - Do the check internally or use the same MainKey kinda initialization as the macos version?
-    pub(in crate::win) view: Arc<ThreadLockedView>
+    pub(in crate::win) view: Arc<ThreadLockedView>,
 }
 
 impl Clone for WindowHandle {
@@ -23,14 +23,14 @@ impl Clone for WindowHandle {
 
 impl HasWindowHandle for WindowHandle {
     fn window_handle(&self) -> Result<RWHWindowHandle<'_>, HandleError> {
-        self.view.try_on_thread(
-            |view| {
+        self.view
+            .try_on_thread(|view| {
                 let raw_ptr = view.hwnd().0;
                 let handle = Win32WindowHandle::new(NonZeroIsize::new(raw_ptr as isize).ok_or(HandleError::Unavailable)?);
 
                 unsafe { Ok(RWHWindowHandle::borrow_raw(RawWindowHandle::Win32(handle))) }
-            }
-        ).expect("RawWindowHandle must be requested from the main thread")
+            })
+            .expect("RawWindowHandle must be requested from the main thread")
     }
 }
 
@@ -43,7 +43,7 @@ impl HasDisplayHandle for WindowHandle {
 impl WindowHandle {
     pub(crate) fn new(view: RosinView) -> WindowHandle {
         Self {
-            view: Arc::new(ThreadLockedView::new(view))
+            view: Arc::new(ThreadLockedView::new(view)),
         }
     }
 
@@ -66,7 +66,7 @@ impl WindowHandle {
     }
 
     pub fn is_active(&self) -> bool {
-        // IsWindowEnabled 
+        // IsWindowEnabled
         true
     }
 
@@ -75,10 +75,12 @@ impl WindowHandle {
     }
 
     pub fn deactivate(&self) {
-        // SetActiveWindow 
+        // SetActiveWindow
     }
 
-    pub fn set_menu(&self, _menu: impl Into<Option<MenuDesc>>) {}
+    pub fn set_menu(&self, _menu: impl Into<Option<MenuDesc>>) {
+        /* call DrawMenuBar to redraw the menu bar */
+    }
 
     pub fn show_context_menu(&self, _node: Option<NodeId>, _menu: MenuDesc, _pos: Point) {}
 
@@ -93,70 +95,52 @@ impl WindowHandle {
     pub fn set_min_size(&self, _size: Option<impl Into<Size>>) {}
 
     pub fn set_position(&self, position: impl Into<Point>) {
-        use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_ASYNCWINDOWPOS, SWP_NOSIZE, SWP_NOZORDER};
         use crate::platform::view::f64_to_i32;
+        use windows::Win32::UI::WindowsAndMessaging::{SWP_ASYNCWINDOWPOS, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos};
 
         let position = position.into();
 
         unsafe {
             // SAFETY: SWP_ASYNCWINDOWPOS guarantees thread safety
-            self.view.try_on_trust(
-                move |view| {
-                    // SAFETY:
-                    //  - view.hwnd() is a valid handle
-                    //  - None is a valid optional handle
-                    //  - SWP_ASYNCWINDOWPOS, SWP_NOSIZE and SWP_NOZORDER are a valid value when xor'ed
-                    let _res = SetWindowPos(
-                        view.hwnd(),
-                        None,
-                        f64_to_i32(position.x),
-                        f64_to_i32(position.y),
-                        0,
-                        0,
-                        SWP_ASYNCWINDOWPOS | SWP_NOSIZE | SWP_NOZORDER
-                    );
+            self.view.try_on_trust(move |view| {
+                // SAFETY:
+                //  - view.hwnd() is a valid handle
+                //  - None is a valid optional handle
+                //  - SWP_ASYNCWINDOWPOS, SWP_NOSIZE and SWP_NOZORDER are a valid value when xor'ed
+                let _res =
+                    SetWindowPos(view.hwnd(), None, f64_to_i32(position.x), f64_to_i32(position.y), 0, 0, SWP_ASYNCWINDOWPOS | SWP_NOSIZE | SWP_NOZORDER);
 
-                    #[cfg(debug_assertions)]
-                    if let Err(err) = _res {
-                        eprintln!("`set_size` failed to change the size for `{hwnd:?}` \"{err}\": {err:#?}", hwnd = view.hwnd())
-                    }
+                #[cfg(debug_assertions)]
+                if let Err(err) = _res {
+                    eprintln!("`set_size` failed to change the size for `{hwnd:?}` \"{err}\": {err:#?}", hwnd = view.hwnd())
                 }
-            )
+            })
         }
     }
 
     pub fn set_resizable(&self, _resizeable: bool) {}
 
     pub fn set_size(&self, size: impl Into<Size>) {
-        use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_ASYNCWINDOWPOS, SWP_NOMOVE, SWP_NOZORDER};
         use crate::platform::view::f64_to_i32;
+        use windows::Win32::UI::WindowsAndMessaging::{SWP_ASYNCWINDOWPOS, SWP_NOMOVE, SWP_NOZORDER, SetWindowPos};
 
         let size = size.into();
 
         unsafe {
             // SAFETY: SWP_ASYNCWINDOWPOS guarantees thread safety
-            self.view.try_on_trust(
-                move |view| {
-                    // SAFETY:
-                    //  - view.hwnd() is a valid handle
-                    //  - None is a valid optional handle
-                    //  - SWP_ASYNCWINDOWPOS, SWP_NOMOVE and SWP_NOZORDER are a valid value when xor'ed
-                    let _res = SetWindowPos(
-                        view.hwnd(),
-                        None,
-                        0,
-                        0,
-                        f64_to_i32(size.width),
-                        f64_to_i32(size.height),
-                        SWP_ASYNCWINDOWPOS | SWP_NOMOVE | SWP_NOZORDER
-                    );
+            self.view.try_on_trust(move |view| {
+                // SAFETY:
+                //  - view.hwnd() is a valid handle
+                //  - None is a valid optional handle
+                //  - SWP_ASYNCWINDOWPOS, SWP_NOMOVE and SWP_NOZORDER are a valid value when xor'ed
+                let _res =
+                    SetWindowPos(view.hwnd(), None, 0, 0, f64_to_i32(size.width), f64_to_i32(size.height), SWP_ASYNCWINDOWPOS | SWP_NOMOVE | SWP_NOZORDER);
 
-                    #[cfg(debug_assertions)]
-                    if let Err(err) = _res {
-                        eprintln!("`set_size` failed to change the size for `{hwnd:?}` \"{err}\": {err:#?}", hwnd = view.hwnd())
-                    }
+                #[cfg(debug_assertions)]
+                if let Err(err) = _res {
+                    eprintln!("`set_size` failed to change the size for `{hwnd:?}` \"{err}\": {err:#?}", hwnd = view.hwnd())
                 }
-            )
+            })
         }
     }
 
@@ -165,27 +149,31 @@ impl WindowHandle {
     pub fn set_title(&self, _title: impl Into<String>) {}
 
     pub fn minimize(&self) {
-        self.view.try_on_thread(RosinView::minimize).expect("Temporary crash fail when `minimize` is ran");
+        self.view
+            .try_on_thread(RosinView::minimize)
+            .expect("Temporary crash fail when `minimize` is ran");
     }
 
     pub fn maximize(&self) {
-        self.view.try_on_thread(RosinView::maximize).expect("Temporary crash fail when `minimize` is ran");
+        self.view
+            .try_on_thread(RosinView::maximize)
+            .expect("Temporary crash fail when `minimize` is ran");
     }
 
     pub fn restore(&self) {
-        self.view.try_on_thread(RosinView::restore).expect("Temporary crash fail when `minimize` is ran");
+        self.view
+            .try_on_thread(RosinView::restore)
+            .expect("Temporary crash fail when `minimize` is ran");
     }
 
     pub fn set_cursor(&self, _cursor: CursorType) {
         unsafe {
             // FUTURE SAFETY: Gonna use async functions for queuing setting the cursor within the messege queue
             // CURRENT SAFETY: nothing is done with `hwnd`
-            self.view.try_on_trust(
-                |view| {
-                    let hwnd = view.hwnd();
-                    todo!("yet")
-                }
-            )
+            self.view.try_on_trust(|view| {
+                let hwnd = view.hwnd();
+                todo!("yet")
+            })
         }
     }
 

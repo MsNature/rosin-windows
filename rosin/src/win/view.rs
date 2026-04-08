@@ -1,11 +1,10 @@
-
 use std::{any::Any, time::Duration};
 
 use windows::Win32::Foundation::RECT;
+use windows::Win32::Foundation::{HINSTANCE, HWND};
 use windows::Win32::Graphics::Direct2D::Common::D2D_SIZE_U;
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::WindowsAndMessaging::{GetClientRect, GetDesktopWindow, GetWindowRect, GetWindowThreadProcessId, HMENU, SW_NORMAL, ShowWindowAsync};
-use windows::Win32::Foundation::{HINSTANCE, HWND};
 use windows::core::Error;
 
 use crate::{
@@ -33,20 +32,18 @@ impl ThreadLockedView {
                 // SAFETY: this is ran on a valid thread
                 GetWindowThreadProcessId(view.hwnd(), None)
             },
-            view
+            view,
         }
     }
 
     /// Tries to execute immidietly
-    /// 
+    ///
     /// Returns [`None`] if it's not found on the original thread
     pub fn try_on_thread<F, R>(&self, f: F) -> Option<R>
     where
-        F: FnOnce(&RosinView) -> R
+        F: FnOnce(&RosinView) -> R,
     {
-        let current_id = unsafe {
-            GetCurrentThreadId()
-        };
+        let current_id = unsafe { GetCurrentThreadId() };
         (self.thread_id == current_id).then(|| f(&self.view))
     }
 
@@ -61,7 +58,7 @@ impl ThreadLockedView {
 
     pub fn queue_on_thread<F>(&self, f: F)
     where
-        F: FnOnce(&RosinView) + Sync + 'static
+        F: FnOnce(&RosinView) + Sync + 'static,
     {
         todo!()
     }
@@ -69,7 +66,7 @@ impl ThreadLockedView {
     pub fn block_on_thread<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&RosinView) -> R + Sync + 'static,
-        R: Sync + 'static
+        R: Sync + 'static,
     {
         todo!()
     }
@@ -91,8 +88,17 @@ pub(crate) fn f64_to_i32(f: f64) -> i32 {
 }
 
 fn menu(desc: MenuDesc) -> Result<HMENU, Error> {
-    use windows::Win32::UI::WindowsAndMessaging::CreateMenu;
-    use crate::menu::MenuItem;
+    use crate::menu::{
+        MenuItem,
+
+        StandardAction,
+    };
+
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateMenu,
+        InsertMenuItemW,
+        SC_SEPARATOR
+    };
 
     let menu = unsafe {
         // SAFETY: No inputs => all inputs are valid (yipee)
@@ -102,7 +108,7 @@ fn menu(desc: MenuDesc) -> Result<HMENU, Error> {
     // use the InsertMenuItem, AppendMenu, and InsertMenu functions
 
     for item in desc.items.iter() {
-        match item {
+        let insert = match item {
             MenuItem::Action {
                 title,
                 command,
@@ -112,21 +118,29 @@ fn menu(desc: MenuDesc) -> Result<HMENU, Error> {
             } => {
                 todo!("adding an action within a menu")
             }
-            MenuItem::Submenu {
-                title,
-                menu,
-                enabled,
-            } => {
+            MenuItem::Submenu { title, menu, enabled } => {
                 todo!("adding a submenu within a menu")
             }
-            MenuItem::Standard(
-                standard,
-            ) => {
-                todo!("adding a standard action within a menu")
+            MenuItem::Standard( standard ) => {
+                match standard {
+                    StandardAction::Copy      => todo!("adding a standard copy action within a menu"),
+                    StandardAction::Cut       => todo!("adding a standard cut action within a menu"),
+                    StandardAction::Paste     => todo!("adding a standard paste action within a menu"),
+                    StandardAction::SelectAll => todo!("adding a standard select all action within a menu"),
+                }
             }
             MenuItem::Separator => {
                 todo!("adding a separator within a menu")
             }
+        };
+
+        unsafe {
+            InsertMenuItemW(
+                menu,
+                0 /* add here item stuff */,
+                false /* add here pos stuff */,
+                insert /* add here data stuff */,
+            )?
         }
     }
 
@@ -138,15 +152,13 @@ impl RosinView {
     pub fn from_new_window<S: 'static>(desc: &WindowDesc<S>, instance: Option<HINSTANCE>, parent: Option<WindowHandle>) -> Result<RosinView, Error> {
         println!("Initializing rosin view");
 
-        let desktop = unsafe {
-            GetDesktopWindow()
-        };
-        
+        let desktop = unsafe { GetDesktopWindow() };
+
         let width = f64_to_i32(desc.size.width);
         let height = f64_to_i32(desc.size.height);
 
         let (x, y) = 'pos: {
-            if let Some(pos) =  desc.position {
+            if let Some(pos) = desc.position {
                 break 'pos (f64_to_i32(pos.x), f64_to_i32(pos.y));
             }
 
@@ -160,7 +172,7 @@ impl RosinView {
                 }
                 rect
             };
-    
+
             let desktop_width = desktop_size.right - desktop_size.left;
             let desktop_height = desktop_size.bottom - desktop_size.top;
 
@@ -170,9 +182,7 @@ impl RosinView {
             (x, y)
         };
 
-        let view_state = Box::new(
-            ViewState::new()
-        );
+        let view_state = Box::new(ViewState::new());
 
         let Ok(menu) = desc.menu.clone().map(menu).transpose() else {
             todo!("handling failure to create menu gracefully (aka returning an error)")
@@ -329,10 +339,7 @@ impl RosinView {
 impl Drop for RosinView {
     fn drop(&mut self) {
         unsafe {
-            use windows::Win32::UI::WindowsAndMessaging::{
-                GetWindowLongPtrW,
-                GWLP_USERDATA,
-            };
+            use windows::Win32::UI::WindowsAndMessaging::{GWLP_USERDATA, GetWindowLongPtrW};
 
             // SAFETY: self.hwnd is a valid handle
             debug_assert!(!self.hwnd.is_invalid(), "`hwnd` at this point should be a valid window handle");
@@ -349,7 +356,7 @@ use windows::Win32::Graphics::Direct2D::{D2D1_FACTORY_TYPE_MULTI_THREADED, D2D1C
 #[repr(C)]
 pub(crate) struct ViewState {
     pub factory: ID2D1Factory8,
-    pub render_target: Option<ID2D1HwndRenderTarget>
+    pub render_target: Option<ID2D1HwndRenderTarget>,
 }
 
 impl ViewState {
@@ -359,16 +366,11 @@ impl ViewState {
             D2D1CreateFactory(D2D1_FACTORY_TYPE_MULTI_THREADED, None)?
         };
 
-        Ok(
-            ViewState {
-                factory,
-                render_target: None
-            }
-        )
+        Ok(ViewState { factory, render_target: None })
     }
 
-    /// Initalizes all the state 
-    /// 
+    /// Initalizes all the state
+    ///
     /// SAFETY: `hwnd` must be a valid handle
     #[allow(unsafe_op_in_unsafe_fn)]
     pub unsafe fn init(&mut self, hwnd: HWND) -> Result<(), Error> {
@@ -384,7 +386,7 @@ impl ViewState {
     }
 
     /// Initializes the graphics API
-    /// 
+    ///
     /// SAFETY: `hwnd` must be a valid handle
     pub unsafe fn init_graphics(&mut self, hwnd: HWND) -> Result<(), Error> {
         if self.render_target.is_none() {
@@ -398,7 +400,7 @@ impl ViewState {
                 GetClientRect(hwnd, &raw mut rect)?;
                 rect
             };
-            
+
             let render_target_properties = Default::default();
             let hwnd_render_target_properties = windows::Win32::Graphics::Direct2D::D2D1_HWND_RENDER_TARGET_PROPERTIES {
                 hwnd,
@@ -408,10 +410,8 @@ impl ViewState {
 
             let render_target = unsafe {
                 // SAFETY: All these poitners point to valid values
-                self.factory.CreateHwndRenderTarget(
-                    &raw const render_target_properties,
-                    &raw const hwnd_render_target_properties,
-                )?
+                self.factory
+                    .CreateHwndRenderTarget(&raw const render_target_properties, &raw const hwnd_render_target_properties)?
             };
 
             let _ = self.render_target.insert(render_target);

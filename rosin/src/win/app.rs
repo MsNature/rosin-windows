@@ -2,8 +2,8 @@ use std::sync::OnceLock;
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    prelude::*,
     platform::view::RosinView,
+    prelude::*,
 };
 
 static APP_STARTED: OnceLock<()> = OnceLock::new();
@@ -60,17 +60,17 @@ impl<S: Sync + 'static> AppLauncher<S> {
         if APP_STARTED.set(()).is_err() {
             return Err(LaunchError::AlreadyStarted);
         }
-        
-        use windows::Win32::UI::WindowsAndMessaging::{GetMessageW, TranslateMessage, DispatchMessageW, MSG};
+
+        use windows::Win32::UI::WindowsAndMessaging::{DispatchMessageW, GetMessageW, MSG, TranslateMessage};
 
         println!("Running {}", self.windows.first().unwrap().title.as_deref().unwrap_or("rosin app")); // TODO remove
 
         let instance = unsafe {
             // TODO: failiure to create a window should **not** cause a crash
             // doing it this way so it's not ignored
-            windows::Win32::System::LibraryLoader::GetModuleHandleW(None).unwrap_or_else(
-                |err| panic!("Failed to get windows instance: \"{err}\"")
-            ).into()
+            windows::Win32::System::LibraryLoader::GetModuleHandleW(None)
+                .unwrap_or_else(|err| panic!("Failed to get windows instance: \"{err}\""))
+                .into()
         };
 
         let wc = windows::Win32::UI::WindowsAndMessaging::WNDCLASSW {
@@ -80,22 +80,15 @@ impl<S: Sync + 'static> AppLauncher<S> {
             ..Default::default()
         };
 
-        let _class_atom = unsafe {
-            windows::Win32::UI::WindowsAndMessaging::RegisterClassW( &raw const wc )
-        };
+        let _class_atom = unsafe { windows::Win32::UI::WindowsAndMessaging::RegisterClassW(&raw const wc) };
 
         self.state = Some(Rc::new(RefCell::new(state)));
         self.translation_map = Some(translation_map);
 
-
-        let _window_handles: Vec<_> = self.windows
+        let _window_handles: Vec<_> = self
+            .windows
             .iter()
-            .map(
-                |window_desc| RosinView::from_new_window(window_desc, Some(instance), None)
-                .unwrap_or_else(
-                    |err| todo!("Failed to create window: \"{err}\"")
-                )
-            )
+            .map(|window_desc| RosinView::from_new_window(window_desc, Some(instance), None).unwrap_or_else(|err| todo!("Failed to create window: \"{err}\"")))
             .map(crate::platform::handle::WindowHandle::new)
             .collect();
 
@@ -107,9 +100,7 @@ impl<S: Sync + 'static> AppLauncher<S> {
         loop {
             println!("\nInitializing new message...");
 
-            let result = unsafe {
-                GetMessageW(&raw mut message, None, 0, 0)
-            };
+            let result = unsafe { GetMessageW(&raw mut message, None, 0, 0) };
 
             println!("{result:?}; {message:?}");
 
@@ -131,7 +122,7 @@ impl<S: Sync + 'static> AppLauncher<S> {
                 TranslateMessage(&raw mut message);
                 let _ = DispatchMessageW(&raw mut message);
             }
-        };
+        }
 
         Ok(())
     }
